@@ -1,38 +1,68 @@
-addpath('Pot_data\15-03 Damper test filter\')
-addpath("functions\main func\")
+% Analyze the CSV included with this project.
+projectFolder = fileparts(mfilename('fullpath'));
+csvName = '2025-03-15_14-26-10_8_IIB.csv';
+dataFile = fullfile(projectFolder, 'csv', csvName);
+if ~isfile(dataFile)
+    % This also handles MATLAB running a temporary editor copy of the script.
+    [pickedFile, pickedFolder] = uigetfile('*.csv', ...
+        'Select the quarter-car data CSV');
+    if isequal(pickedFile, 0)
+        error('No CSV file was selected.');
+    end
+    dataFile = fullfile(pickedFolder, pickedFile);
+end
+data = readtable(dataFile);
 
-file1 = '2025-03-15_14-26-10_4_IIB.mat';
-file2 = '2025-03-15_14-26-10_8_IIB.mat';
+time = data.Time_s;
+potNames = {'fl_pot_travel_distance', 'fr_pot_travel_distance', ...
+    'rl_pot_travel_distance', 'rr_pot_travel_distance'};
+cornerNames = {'Front Left', 'Front Right', 'Rear Left', 'Rear Right'};
 
-%Potentiometers
-threshold = 1;
-plotOffset(file1, file2, threshold)
+% Plot the four suspension travel signals.
+figure('Name', 'Suspension Travel');
+for k = 1:numel(potNames)
+    subplot(4, 1, k);
+    plot(time, data.(potNames{k}));
+    ylabel('Travel (mm)');
+    title(cornerNames{k});
+end
+xlabel('Time (s)');
 
-%% Damper FFT 
-damperFFTs(file1, file2)
+% Plot damper velocity distributions using the values already in the CSV.
+velocityNames = {'damper_vel_fl', 'damper_vel_fr', ...
+    'damper_vel_rl', 'damper_vel_rr'};
+figure('Name', 'Damper Velocity Distribution');
+hold on;
+for k = 1:numel(velocityNames)
+    histogram(data.(velocityNames{k}), 40, 'Normalization', 'probability', ...
+        'DisplayStyle', 'stairs', 'DisplayName', cornerNames{k});
+end
+xlabel('Damper Velocity (mm/s)');
+ylabel('Probability');
+legend('show');
+grid on;
+hold off;
 
-% Damper histograms
-numBins = 40;  % for nº of bins 
-numTicks = 15; % x's increment 
-damperHistograms(file1, file2, numBins, numTicks, 'line') % change to 'bar'
-
-%Other signals
-plotsignals(file1,file2);
-
-
-% Roll Stiffness / ratio (RS)
-rollsusp = suspotscalc(file1);
-
-    % add function calculate rsd, roll from sus, rg pg, rr 
- 
-% file ='2025-03-15_18-05-35_14_IIB';
-% matfile = fullfile('C:\Users\Legion Slim 5\Desktop\QuarterCar\Pot_data\15-03 damper test', file); disp(matfile)
-% [table_csv, accYgVal] = csvExport(matfile, fl_pot_travel_distance, fr_pot_travel_distance, rl_pot_travel_distance, rr_pot_travel_distance, accX, accY, amk_actual_speed0, amk_actual_speed1, amk_actual_speed2, amk_actual_speed3, dash_se, Pitch, Roll, te_main_APPS, te_main_BPSe, te_main_BPSp);
-
-% Modal analysis for wheel loads 
-%[force_fl, force_fr, force_rl, force_rr, force_total] = loadsModal(fl_pot_travel_distance.signals.values, fr_pot_travel_distance.signals.values, rl_pot_travel_distance.signals.values,rr_pot_travel_distance.signals.values); 
-
-% table csv to struct
-% rollxsensestruct = table2struct(table_csv(:, [14, 20]), 'ToScalar', true);
-% rollsusp = table2struct(table_csv(:,[18,19]), 'ToScalar',true);
-% rollsusp = [rollsusp.roll_sprung_front, rollsusp.roll_sprung_rear];
+% Calculate and plot one-sided FFT amplitude spectra from suspension travel.
+dt = mean(diff(time));
+sampleRate = 1 / dt;
+figure('Name', 'Suspension Travel FFT');
+hold on;
+for k = 1:numel(potNames)
+    values = data.(potNames{k});
+    values = values - mean(values, 'omitnan');
+    n = numel(values);
+    spectrum = abs(fft(values));
+    oneSided = spectrum(1:floor(n / 2) + 1) * (2 / n);
+    oneSided(1) = oneSided(1) / 2; % DC is not doubled
+    if mod(n, 2) == 0
+        oneSided(end) = oneSided(end) / 2; % Nyquist bin is not doubled
+    end
+    frequencies = (0:floor(n / 2))' * (sampleRate / n);
+    plot(frequencies, oneSided, 'DisplayName', cornerNames{k});
+end
+xlabel('Frequency (Hz)');
+ylabel('Travel Amplitude (mm)');
+legend('show');
+grid on;
+hold off;
